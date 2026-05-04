@@ -61,41 +61,82 @@ def score_email(a):
     return min(score, 30)
 
 
+
 def analyse_email(email):
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        input=f"""
+    fallback = {
+        "summary": email.get("subject", "No subject"),
+        "value_to_reader": "Potentially relevant email, but AI JSON parsing failed.",
+        "why": "The system could not parse the AI response, so this email has been given a safe default analysis.",
+        "ceo_role": "Execution",
+        "category": "Information",
+        "revenue_potential": "low",
+        "strategic_value": "medium",
+        "time_saving": "low",
+        "urgency": "low",
+        "priority_aligned": False,
+        "reply_needed": "Maybe",
+        "reply_timing": "Later",
+        "suggested_owner": "CEO",
+        "owner_reason": "Fallback owner because AI parsing failed.",
+        "score_explanation": [
+            "AI response was not valid JSON",
+            "Fallback scoring applied"
+        ],
+    }
+
+    try:
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            input=f"""
 You are analysing emails for the CEO of AirNode.
 
 CEO priorities:
 {PRIORITIES}
 
 Email:
-Subject: {email['subject']}
-Sender: {email['sender']}
-Body: {email['body']}
+Subject: {email.get('subject', '')}
+Sender: {email.get('sender', '')}
+Body: {email.get('body', '')}
 
-Return valid JSON only with:
-summary: string
-value_to_reader: string
-why: string
-ceo_role: string
-category: string
-revenue_potential: low|medium|high
-strategic_value: low|medium|high
-time_saving: low|medium|high
-urgency: low|medium|high
-priority_aligned: true|false
-reply_needed: Yes|No|Maybe
-reply_timing: Today|24h|This week|Later|No reply|Never
-suggested_owner: string
-owner_reason: string
-score_explanation: array of strings
+Return ONLY valid JSON. No markdown. No explanation.
+
+Required JSON shape:
+{{
+  "summary": "string",
+  "value_to_reader": "string",
+  "why": "string",
+  "ceo_role": "Capital / Direction",
+  "category": "Partnership",
+  "revenue_potential": "high",
+  "strategic_value": "high",
+  "time_saving": "low",
+  "urgency": "medium",
+  "priority_aligned": true,
+  "reply_needed": "Yes",
+  "reply_timing": "24h",
+  "suggested_owner": "CEO",
+  "owner_reason": "string",
+  "score_explanation": ["string"]
+}}
 """,
-    )
+            text={
+                "format": {
+                    "type": "json_object"
+                }
+            },
+        )
 
-    return json.loads(response.output_text)
+        text = response.output_text
 
+        if not text:
+            fallback["raw_error_text"] = "Empty OpenAI response"
+            return fallback
+
+        return json.loads(text)
+
+    except Exception as e:
+        fallback["raw_error"] = str(e)
+        return fallback
 
 def email_exists(subject, sender_email):
     existing = (
