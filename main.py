@@ -24,3 +24,6 @@ def dashboard():
             "why": "Repeated SME demand signal"
         }
     ]
+@app.get("/")
+def home():
+    return {"status": "AirNode CEO Portal API is running"}
