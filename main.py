@@ -97,3 +97,21 @@ def dashboard():
         })
 
     return sorted(results, key=lambda x: x["score"], reverse=True)
+from supabase import create_client
+import os
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+@app.post("/api/test-db")
+def test_db():
+    row = supabase.table("emails").insert({
+        "subject": "Database test email",
+        "sender": "AirNode Test",
+        "sender_email": "test@airnode.co.uk",
+        "body": "Testing Supabase connection."
+    }).execute()
+
+    return {"inserted": row.data}
