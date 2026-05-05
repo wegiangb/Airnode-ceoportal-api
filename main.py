@@ -7,6 +7,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from supabase import create_client
 
+from fastapi.responses import RedirectResponse
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+import base64
+
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+
+
+
 app = FastAPI(title="AirNode CEO Portal API")
 
 app.add_middleware(
@@ -378,3 +391,164 @@ def update_decision(email_id: str, payload: dict = Body(...)):
         row = supabase.table("email_decisions").insert(decision_payload).execute()
 
     return {"updated": row.data}
+
+
+
+@app.get("/api/gmail/connect")
+def gmail_connect():
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [GOOGLE_REDIRECT_URI],
+            }
+        },
+        scopes=GMAIL_SCOPES,
+        redirect_uri=GOOGLE_REDIRECT_URI,
+    )
+
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+
+    return RedirectResponse(auth_url)
+
+@app.get("/api/gmail/callback")
+def gmail_callback(code: str, state: str = None):
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [GOOGLE_REDIRECT_URI],
+            }
+        },
+        scopes=GMAIL_SCOPES,
+        redirect_uri=GOOGLE_REDIRECT_URI,
+    )
+
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+
+    token_json = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": creds.scopes,
+    }
+
+    service = build("gmail", "v1", credentials=creds)
+    profile = service.users().getProfile(userId="me").execute()
+    user_email = profile.get("emailAddress")
+
+    supabase.table("gmail_tokens").insert({
+        "user_email": user_email,
+        "token_json": token_json
+    }).execute()
+
+    return {
+        "status": "gmail_connected",
+        "email": user_email
+    }
+
+
+def decode_body(payload):
+    body = ""
+
+    if "parts" in payload:
+        for part in payload["parts"]:
+            if part.get("mimeType") == "text/plain":
+                data = part.get("body", {}).get("data")
+                if data:
+                    body += base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+    else:
+        data = payload.get("body", {}).get("data")
+        if data:
+            body += base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+
+    return body[:5000]
+
+
+def header_value(headers, name):
+    for h in headers:
+        if h["name"].lower() == name.lower():
+            return h["value"]
+    return ""
+
+
+@app.post("/api/gmail/sync")
+def gmail_sync():
+    token_rows = supabase.table("gmail_tokens").select("*").execute().data
+
+    if not token_rows:
+        return {"error": "No Gmail account connected"}
+
+    token_json = token_rows[-1]["token_json"]
+
+    creds = Credentials(
+        token=token_json["token"],
+        refresh_token=token_json.get("refresh_token"),
+        token_uri=token_json["token_uri"],
+        client_id=token_json["client_id"],
+        client_secret=token_json["client_secret"],
+        scopes=token_json["scopes"],
+    )
+
+    service = build("gmail", "v1", credentials=creds)
+
+    messages = service.users().messages().list(
+        userId="me",
+        maxResults=10,
+        q="newer_than:14d"
+    ).execute().get("messages", [])
+
+    processed = []
+
+    for msg in messages:
+        full = service.users().messages().get(
+            userId="me",
+            id=msg["id"],
+            format="full"
+        ).execute()
+
+        payload = full.get("payload", {})
+        headers = payload.get("headers", [])
+
+        subject = header_value(headers, "Subject") or "(No subject)"
+        sender = header_value(headers, "From")
+        body = decode_body(payload)
+
+        email = {
+            "subject": subject,
+            "sender": sender,
+            "sender_email": sender,
+            "body": body or full.get("snippet", "")
+        }
+
+        email_id = save_email(email)
+        analysis = analyse_email(email)
+        score = score_email(analysis)
+
+        save_analysis(email_id, analysis, score)
+        ensure_decision_row(email_id)
+
+        processed.append({
+            "email_id": email_id,
+            "subject": subject,
+            "score": score
+        })
+
+    return {
+        "synced": len(processed),
+        "processed": processed
+    }
+
