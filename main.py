@@ -593,8 +593,6 @@ def gmail_callback(request: Request):
         }
 
 
-import requests
-from fastapi import Request
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
