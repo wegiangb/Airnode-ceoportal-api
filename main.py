@@ -599,7 +599,7 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
 @app.get("/api/gmail/callback1")
-def gmail_callback(request: Request):
+def gmail_callbak(request: Request):
     code = request.query_params.get("code")
     error = request.query_params.get("error")
 
