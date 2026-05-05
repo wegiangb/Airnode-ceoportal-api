@@ -551,7 +551,6 @@ def gmail_sync():
         "synced": len(processed),
         "processed": processed
     }
-
 import requests
 from fastapi import Request
 
@@ -562,35 +561,65 @@ def gmail_callback(request: Request):
         error = request.query_params.get("error")
 
         if error:
-            return {"step": "google_returned_error", "error": error}
+            return {"success": False, "step": "google_error", "error": error}
 
         if not code:
-            return {"step": "missing_code", "query": dict(request.query_params)}
+            return {"success": False, "step": "missing_code"}
 
-        token_url = "https://oauth2.googleapis.com/token"
+        token_response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": GOOGLE_REDIRECT_URI,
+                "grant_type": "authorization_code",
+            },
+        )
 
-        payload = {
-            "code": code,
-            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-            "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI"),
-            "grant_type": "authorization_code",
-        }
+        token_json = token_response.json()
 
-        token_response = requests.post(token_url, data=payload)
+        if token_response.status_code != 200:
+            return {
+                "success": False,
+                "step": "token_exchange_failed",
+                "google_error": token_json,
+            }
+
+        creds = Credentials(
+            token=token_json["access_token"],
+            refresh_token=token_json.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=GOOGLE_CLIENT_ID,
+            client_secret=GOOGLE_CLIENT_SECRET,
+            scopes=GMAIL_SCOPES,
+        )
+
+        service = build("gmail", "v1", credentials=creds)
+        profile = service.users().getProfile(userId="me").execute()
+        user_email = profile.get("emailAddress")
+
+        supabase.table("gmail_tokens").insert({
+            "user_email": user_email,
+            "token_json": {
+                "token": token_json["access_token"],
+                "refresh_token": token_json.get("refresh_token"),
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "scopes": GMAIL_SCOPES,
+            }
+        }).execute()
 
         return {
-            "step": "token_exchange",
-            "status_code": token_response.status_code,
-            "response_json": token_response.json() if token_response.headers.get("content-type","").startswith("application/json") else None,
-            "raw_text": token_response.text[:500]  # limit output
+            "success": True,
+            "status": "gmail_connected",
+            "email": user_email,
         }
 
     except Exception as e:
         return {
+            "success": False,
             "step": "exception",
-            "error": str(e)
+            "error": str(e),
         }
-
-
-
