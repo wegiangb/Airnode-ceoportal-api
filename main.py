@@ -13,6 +13,10 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import base64
 
+
+import urllib.parse
+from fastapi.responses import RedirectResponse
+
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -392,10 +396,26 @@ def update_decision(email_id: str, payload: dict = Body(...)):
 
     return {"updated": row.data}
 
-
-
 @app.get("/api/gmail/connect")
 def gmail_connect():
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": " ".join(GMAIL_SCOPES),
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+
+    url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
+    return RedirectResponse(url)
+
+
+
+
+
+@app.get("/api/gmail/connet")
+def gmail_connet():
     flow = Flow.from_client_config(
         {
             "web": {
