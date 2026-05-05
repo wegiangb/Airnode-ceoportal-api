@@ -552,3 +552,54 @@ def gmail_sync():
         "processed": processed
     }
 
+import requests
+from fastapi import Request
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+
+@app.get("/api/gmail/callback")
+def gmail_callback(request: Request):
+    code = request.query_params.get("code")
+    error = request.query_params.get("error")
+
+    if error:
+        return {"success": False, "error": error}
+
+    if not code:
+        return {"success": False, "error": "No code returned from Google"}
+
+    token_url = "https://oauth2.googleapis.com/token"
+
+    payload = {
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "grant_type": "authorization_code",
+    }
+
+    token_response = requests.post(token_url, data=payload)
+
+    try:
+        token_json = token_response.json()
+    except Exception:
+        return {
+            "success": False,
+            "status_code": token_response.status_code,
+            "raw_response": token_response.text,
+        }
+
+    if token_response.status_code != 200:
+        return {
+            "success": False,
+            "status_code": token_response.status_code,
+            "google_error": token_json,
+        }
+
+    return {
+        "success": True,
+        "message": "Gmail connected",
+        "token_keys": list(token_json.keys())
+        }
