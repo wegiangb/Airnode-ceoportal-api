@@ -555,11 +555,52 @@ def gmail_sync():
 import requests
 from fastapi import Request
 
+@app.get("/api/gmail/callback")
+def gmail_callback(request: Request):
+    try:
+        code = request.query_params.get("code")
+        error = request.query_params.get("error")
+
+        if error:
+            return {"step": "google_returned_error", "error": error}
+
+        if not code:
+            return {"step": "missing_code", "query": dict(request.query_params)}
+
+        token_url = "https://oauth2.googleapis.com/token"
+
+        payload = {
+            "code": code,
+            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI"),
+            "grant_type": "authorization_code",
+        }
+
+        token_response = requests.post(token_url, data=payload)
+
+        return {
+            "step": "token_exchange",
+            "status_code": token_response.status_code,
+            "response_json": token_response.json() if token_response.headers.get("content-type","").startswith("application/json") else None,
+            "raw_text": token_response.text[:500]  # limit output
+        }
+
+    except Exception as e:
+        return {
+            "step": "exception",
+            "error": str(e)
+        }
+
+
+import requests
+from fastapi import Request
+
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
-@app.get("/api/gmail/callback")
+@app.get("/api/gmail/callback1")
 def gmail_callback(request: Request):
     code = request.query_params.get("code")
     error = request.query_params.get("error")
