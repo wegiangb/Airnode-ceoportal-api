@@ -418,8 +418,8 @@ def gmail_connect():
 
     return RedirectResponse(auth_url)
 
-@app.get("/api/gmail/callback")
-def gmail_callback(code: str, state: str = None):
+@app.get("/api/gmail/callbak")
+def gmail_callbak(code: str, state: str = None):
     flow = Flow.from_client_config(
         {
             "web": {
