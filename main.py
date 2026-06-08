@@ -700,6 +700,42 @@ def health():
     }
 
 # -----------------------------------------------------------------------------
+# CEO Themes and Subthemes
+# -----------------------------------------------------------------------------
+
+@app.get("/api/ceo/themes")
+def get_ceo_themes():
+    db = require_supabase()
+
+    themes = (
+        db.table("ceo_themes")
+        .select("*")
+        .order("sort_order")
+        .execute()
+        .data
+    )
+
+    subthemes = (
+        db.table("ceo_subthemes")
+        .select("*")
+        .order("sort_order")
+        .execute()
+        .data
+    )
+
+    result = []
+
+    for theme in themes:
+        theme["subThemes"] = [
+            s for s in subthemes
+            if s.get("theme_id") == theme.get("id")
+        ]
+        result.append(theme)
+
+    return result
+
+
+# -----------------------------------------------------------------------------
 # CEO model and initiatives
 # -----------------------------------------------------------------------------
 
